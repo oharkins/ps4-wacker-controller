@@ -1,23 +1,49 @@
+// WackerController.ino
+// Controller for Wacker equipment using Bluepad32
+// Controls fuel, starter, vibration modes, and movement
+
 #include <Bluepad32.h>
 
+// Pin Definitions
+namespace Pins {
+    // Valid GPIO pins for ESP32 (0-39)
+    const int FUEL = 13;      // GPIO13
+    const int STARTER = 2;    // GPIO2
+    const int BREAKOUT = 14;  // GPIO14
+    const int LEFT = 12;      // GPIO12
+    const int RIGHT = 15;     // GPIO35
+    const int FORWARD = 27;   // GPIO27
+    const int BACKWARD = 26;  // GPIO26
+    const int VIB_HIGH = 25;  // GPIO25
+    const int VIB_LOW = 33;   // GPIO33
+    const int HIGH_SPEED = 32;// GPIO32
+
+    // Function to validate GPIO pin number
+    bool isValidPin(int pin) {
+        return (pin >= 0 && pin <= 39);
+    }
+}
+
+// Timing Constants
+namespace Timing {
+    const unsigned long DEBOUNCE_DELAY = 500;    // ms
+    const unsigned long VIB_TOGGLE_DELAY = 10000; // ms
+    const unsigned long LOOP_DELAY = 100;        // ms
+}
+
+// Controller state
+struct ControllerState {
+    bool fuelState = false;
+    bool vibHighState = false;
+    bool vibLowState = false;
+    bool highSpeedState = false;
+    unsigned long lastToggleTime = 0;
+    unsigned long vibToggleTime = 0;
+    bool lastAState = false;  // Track previous button states
+    bool lastBState = false;
+} state;
+
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
-
-const int fuel = 13;
-bool fuelState = false;
-const int starter = 12;
-const int breakout = 14;
-const int forward = 27;
-const int backward = 26;
-const int vibHigh = 25;
-bool vibHighState = false;
-const int vibLow = 33;
-bool vibLowState = false;
-unsigned long vibToggleTime = 0;
-const int highSpeed = 32;
-bool highSpeedState = false;
-unsigned long lastToggleTime = 0;
-
-
 
 // This callback gets called any time a new gamepad is connected.
 // Up to 4 gamepads can be connected at the same time.
@@ -32,8 +58,8 @@ void onConnectedController(ControllerPtr ctl) {
             Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
                            properties.product_id);
             Serial.println("Controller Connected Turn On Fuel.");
-            fuelState = true;
-            digitalWrite(fuel, fuelState);
+            state.fuelState = true;
+            digitalWrite(Pins::FUEL, state.fuelState);
             myControllers[i] = ctl;
             foundEmptySlot = true;
             break;
@@ -51,7 +77,7 @@ void onDisconnectedController(ControllerPtr ctl) {
         if (myControllers[i] == ctl) {
             Serial.printf("CALLBACK: Controller disconnected from index=%d\n", i);
             Serial.println("Controller Not Connected Turn off fuel.");
-            digitalWrite(fuel, false);
+            digitalWrite(Pins::FUEL, false);
             myControllers[i] = nullptr;
             foundController = true;
             break;
@@ -87,129 +113,134 @@ void dumpGamepad(ControllerPtr ctl) {
     );
 }
 
+// Helper function to safely write to GPIO pins
+void safeDigitalWrite(int pin, int value) {
+    if (Pins::isValidPin(pin)) {
+        digitalWrite(pin, value);
+    } else {
+        Serial.printf("Error: Attempted to write to invalid GPIO pin %d\n", pin);
+    }
+}
 
+// Update processDpadMovement to use safeDigitalWrite
+void processDpadMovement(uint8_t dpad) {
+    // Check for invalid D-pad combinations
+    if ((dpad & DPAD_UP) && (dpad & (DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT))) return;
+    if ((dpad & DPAD_DOWN) && (dpad & (DPAD_UP | DPAD_LEFT | DPAD_RIGHT))) return;
+    if ((dpad & DPAD_LEFT) && (dpad & (DPAD_UP | DPAD_DOWN | DPAD_RIGHT))) return;
+    if ((dpad & DPAD_RIGHT) && (dpad & (DPAD_UP | DPAD_DOWN | DPAD_LEFT))) return;
 
+    // Process valid D-pad inputs
+    safeDigitalWrite(Pins::FORWARD, (dpad & DPAD_UP) ? HIGH : LOW);
+    safeDigitalWrite(Pins::BACKWARD, (dpad & DPAD_DOWN) ? HIGH : LOW);
+    safeDigitalWrite(Pins::LEFT, (dpad & DPAD_LEFT) ? HIGH : LOW);
+    safeDigitalWrite(Pins::RIGHT, (dpad & DPAD_RIGHT) ? HIGH : LOW);
+    
+    // Set breakout based on forward/backward state
+    safeDigitalWrite(Pins::BREAKOUT, ((dpad & DPAD_UP) || (dpad & DPAD_DOWN)) ? HIGH : LOW);
+}
+
+// Update processGamepad to use safeDigitalWrite
 void processGamepad(ControllerPtr ctl) {
-    // There are different ways to query whether a button is pressed.
-    // By query each button individually:
-    //  a(), b(), x(), y(), l1(), etc...
+    if (!ctl) return;  // Safety check
 
     uint8_t dpad = ctl->dpad();
+    unsigned long currentTime = millis();
 
-    // Toggel Fuel Relay
-    if ((ctl->miscButtons() & 0x04) && millis() - lastToggleTime >= 500) {
+    // Toggle Fuel Relay
+    if ((ctl->miscButtons() & 0x04) && currentTime - state.lastToggleTime >= Timing::DEBOUNCE_DELAY) {
         Serial.println("Options button pressed");
-        fuelState = !fuelState;
-        digitalWrite(fuel, fuelState);
+        state.fuelState = !state.fuelState;
+        safeDigitalWrite(Pins::FUEL, state.fuelState);
         Serial.print("Fuel: ");
-        Serial.println(fuelState ? "ON" : "OFF");
-        if(fuelState){
-          ctl->setColorLED(0, 255, 0);
-        }
-        else{
-          ctl->setColorLED(255, 0, 0);
-        }
-        lastToggleTime = millis();
+        Serial.println(state.fuelState ? "ON" : "OFF");
+        ctl->setColorLED(state.fuelState ? 0 : 255, state.fuelState ? 255 : 0, 0);
+        state.lastToggleTime = currentTime;
     }
+
     // Hold Option Button to Start
     if (ctl->miscButtons() & 0x01) {
         Serial.println("PS button pressed");
-        digitalWrite(starter, LOW);
-        fuelState = true;
-        digitalWrite(fuel, fuelState);
-        if(fuelState){
-          ctl->setColorLED(0, 255, 0);
-        }
-        else{
-          ctl->setColorLED(255, 0, 0);
-        }
+        safeDigitalWrite(Pins::STARTER, LOW);
+        state.fuelState = true;
+        safeDigitalWrite(Pins::FUEL, state.fuelState);
+        ctl->setColorLED(0, 255, 0);
         Serial.println("Starting");
     } else {
-        // Release the pin when the A button is not pressed
-        digitalWrite(starter, HIGH);
+        safeDigitalWrite(Pins::STARTER, LOW);
     }
     
-    // Toggel High Speed mode
-    if (ctl->y() && millis() - lastToggleTime >= 500) {
+    // Toggle High Speed mode
+    if (ctl->y() && currentTime - state.lastToggleTime >= Timing::DEBOUNCE_DELAY) {
         Serial.println("Triangle Pressed");
-        highSpeedState = !highSpeedState;
-        digitalWrite(highSpeed, highSpeedState);
+        state.highSpeedState = !state.highSpeedState;
+        safeDigitalWrite(Pins::HIGH_SPEED, state.highSpeedState);
         Serial.print("High Speed: ");
-        Serial.println(highSpeedState ? "ON" : "OFF");
-        lastToggleTime = millis();
+        Serial.println(state.highSpeedState ? "ON" : "OFF");
+        state.lastToggleTime = currentTime;
     }
 
-    // Set Vibaration Mode HIGH
-    if (ctl->a() && millis() - vibToggleTime >= 10000) {
-        Serial.println("X Pressed");
-        vibHighState = !vibHighState;
-        digitalWrite(vibHigh, vibHighState);
-        Serial.print("Vib High: ");
-        Serial.println(vibHighState ? "ON" : "OFF");
-        vibToggleTime = millis();
+    // Toggle Vibration Modes
+    bool currentAState = ctl->a();
+    bool currentBState = ctl->b();
+    
+    // Handle A button (High Vibration)
+    if (currentAState && !state.lastAState) {  // Button just pressed
+        unsigned long currentVibTime = millis();
+        if (state.vibHighState) {
+            // Can turn off high vibration immediately
+            Serial.println("X Pressed - Turning off High Vibration");
+            state.vibHighState = false;
+            safeDigitalWrite(Pins::VIB_HIGH, false);
+            state.vibToggleTime = currentVibTime;
+        } else if (!state.vibLowState && currentVibTime - state.vibToggleTime >= Timing::VIB_TOGGLE_DELAY) {
+            // Can turn on high vibration after delay if low is off
+            Serial.println("X Pressed - Turning on High Vibration");
+            state.vibHighState = true;
+            state.vibLowState = false;
+            safeDigitalWrite(Pins::VIB_HIGH, true);
+            safeDigitalWrite(Pins::VIB_LOW, false);
+            state.vibToggleTime = currentVibTime;
+        }
     }
+    state.lastAState = currentAState;
 
-    // Set Vibaration Mode HIGH
-    if (ctl->b() && millis() - vibToggleTime >= 10000) {
-        Serial.println("B Pressed");
-        vibLowState = !vibLowState;
-        digitalWrite(vibLow, vibLowState);
-        Serial.print("Vib Low: ");
-        Serial.println(vibLowState ? "ON" : "OFF");
-        vibToggleTime = millis();
+    // Handle B button (Low Vibration)
+    if (currentBState && !state.lastBState) {  // Button just pressed
+        unsigned long currentVibTime = millis();
+        if (state.vibLowState) {
+            // Can turn off low vibration immediately
+            Serial.println("B Pressed - Turning off Low Vibration");
+            state.vibLowState = false;
+            safeDigitalWrite(Pins::VIB_LOW, false);
+            state.vibToggleTime = currentVibTime;
+        } else if (!state.vibHighState && currentVibTime - state.vibToggleTime >= Timing::VIB_TOGGLE_DELAY) {
+            // Can turn on low vibration after delay if high is off
+            Serial.println("B Pressed - Turning on Low Vibration");
+            state.vibLowState = true;
+            state.vibHighState = false;
+            safeDigitalWrite(Pins::VIB_LOW, true);
+            safeDigitalWrite(Pins::VIB_HIGH, false);
+            state.vibToggleTime = currentVibTime;
+        }
     }
+    state.lastBState = currentBState;
 
+    // Square button for starting
     if (ctl->x()) {
         Serial.println("Square button pressed");
-        digitalWrite(starter, LOW);
-        fuelState = true;
-        digitalWrite(fuel, fuelState);
-        if(fuelState){
-          ctl->setColorLED(0, 255, 0);
-        }
-        else{
-          ctl->setColorLED(255, 0, 0);
-        }
+        safeDigitalWrite(Pins::STARTER, HIGH);
+        state.fuelState = true;
+        safeDigitalWrite(Pins::FUEL, state.fuelState);
+        ctl->setColorLED(0, 255, 0);
         Serial.println("Starting");
     } else {
-        digitalWrite(starter, HIGH);
-    }
-    
-    
-
-    // Check if more than one D-pad button is pressed
-    if ((dpad & DPAD_UP) && (dpad & (DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT))) {
-        // More than one D-pad button is pressed, ignore this input
-        return;
-    }
-    if ((dpad & DPAD_DOWN) && (dpad & (DPAD_UP | DPAD_LEFT | DPAD_RIGHT))) {
-        return;
-    }
-    if ((dpad & DPAD_LEFT) && (dpad & (DPAD_UP | DPAD_DOWN | DPAD_RIGHT))) {
-        return;
-    }
-    if ((dpad & DPAD_RIGHT) && (dpad & (DPAD_UP | DPAD_DOWN | DPAD_LEFT))) {
-        return;
+        safeDigitalWrite(Pins::STARTER, LOW);
     }
 
-    // Process the D-pad input
-    if (dpad & DPAD_UP) {
-        Serial.println("Forward");
-    }
-    if (dpad & DPAD_DOWN) {
-        Serial.println("Back");
-    }
-    if (dpad & DPAD_LEFT) {
-        Serial.println("Left");
-    }
-    if (dpad & DPAD_RIGHT) {
-        Serial.println("Right");
-    }
-    // Another way to query controller data is by getting the buttons() function.
-    // See how the different "dump*" functions dump the Controller info.
-   //dumpGamepad(ctl);
+    // Process D-pad movement
+    processDpadMovement(dpad);
 }
-
 
 void processControllers() {
     for (auto myController : myControllers) {
@@ -233,27 +264,23 @@ void setup() {
     // Setup the Bluepad32 callbacks
     BP32.setup(&onConnectedController, &onDisconnectedController);
     
-    pinMode(fuel, OUTPUT);
-    pinMode(starter, OUTPUT);
-    pinMode(breakout, OUTPUT);
-    pinMode(forward, OUTPUT);
-    pinMode(backward, OUTPUT);
-    pinMode(vibHigh, OUTPUT);
-    pinMode(vibLow, OUTPUT);
-    pinMode(highSpeed, OUTPUT);
+    // Initialize all pins with validation
+    const int pins[] = {
+        Pins::FUEL, Pins::STARTER, Pins::BREAKOUT, Pins::FORWARD,
+        Pins::BACKWARD, Pins::LEFT, Pins::RIGHT, Pins::VIB_HIGH,
+        Pins::VIB_LOW, Pins::HIGH_SPEED
+    };
 
-    // "forgetBluetoothKeys()" should be called when the user performs
-    // a "device factory reset", or similar.
-    // Calling "forgetBluetoothKeys" in setup() just as an example.
-    // Forgetting Bluetooth keys prevents "paired" gamepads to reconnect.
-    // But it might also fix some connection / re-connection issues.
+    for (int pin : pins) {
+        if (Pins::isValidPin(pin)) {
+            pinMode(pin, OUTPUT);
+            digitalWrite(pin, LOW);
+        } else {
+            Serial.printf("Error: Invalid GPIO pin %d\n", pin);
+        }
+    }
+
     BP32.forgetBluetoothKeys();
-
-    // Enables mouse / touchpad support for gamepads that support them.
-    // When enabled, controllers like DualSense and DualShock4 generate two connected devices:
-    // - First one: the gamepad
-    // - Second one, which is a "virtual device", is a mouse.
-    // By default, it is disabled.
     BP32.enableVirtualDevice(false);
 }
 
@@ -272,5 +299,5 @@ void loop() {
     // https://stackoverflow.com/questions/66278271/task-watchdog-got-triggered-the-tasks-did-not-reset-the-watchdog-in-time
 
     //     vTaskDelay(1);
-    delay(100);
+    delay(Timing::LOOP_DELAY);
 }
