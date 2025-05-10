@@ -14,7 +14,7 @@ namespace Pins {
     const int RIGHT = 27;     // GPIO27
     const int FORWARD = 12;   // GPIO12
     const int BACKWARD = 14;  // GPIO14
-    const int VIB_HIGH = 25;  // GPIO25
+    const int VIB_HIGH = 32;  // GPIO32
     const int VIB_LOW = 26;   // GPIO26
     const int HIGH_SPEED = 13;// GPIO13
 
@@ -156,17 +156,17 @@ void processGamepad(ControllerPtr ctl) {
         state.lastToggleTime = currentTime;
     }
 
-    // Hold Option Button to Start
-    if (ctl->miscButtons() & 0x01) {
-        Serial.println("PS button pressed");
-        safeDigitalWrite(Pins::STARTER, LOW);
-        state.fuelState = true;
-        safeDigitalWrite(Pins::FUEL, state.fuelState);
-        ctl->setColorLED(0, 255, 0);
-        Serial.println("Starting");
-    } else {
-        safeDigitalWrite(Pins::STARTER, LOW);
-    }
+    // // Hold Option Button to Start
+    // if (ctl->miscButtons() & 0x01) {
+    //     Serial.println("PS button pressed");
+    //     safeDigitalWrite(Pins::STARTER, LOW);
+    //     state.fuelState = true;
+    //     safeDigitalWrite(Pins::FUEL, state.fuelState);
+    //     ctl->setColorLED(0, 255, 0);
+    //     Serial.println("Starting");
+    // } else {
+    //     safeDigitalWrite(Pins::STARTER, LOW);
+    // }
     
     // Toggle High Speed mode
     if (ctl->y() && currentTime - state.lastToggleTime >= Timing::DEBOUNCE_DELAY) {
