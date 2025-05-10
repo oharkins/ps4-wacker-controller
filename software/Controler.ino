@@ -7,16 +7,16 @@
 // Pin Definitions
 namespace Pins {
     // Valid GPIO pins for ESP32 (0-39)
-    const int FUEL = 4;      // GPIO4
+    const int FUEL = 4;       // GPIO4
     const int STARTER = 2;    // GPIO2
-    const int BREAKOUT = 14;  // GPIO14
-    const int LEFT = 12;      // GPIO12
-    const int RIGHT = 13;     // GPIO13
-    const int FORWARD = 27;   // GPIO27
-    const int BACKWARD = 26;  // GPIO26
+    const int BREAKOUT = 25;  // GPIO25
+    const int LEFT = 33;      // GPIO33
+    const int RIGHT = 27;     // GPIO27
+    const int FORWARD = 12;   // GPIO12
+    const int BACKWARD = 14;  // GPIO14
     const int VIB_HIGH = 25;  // GPIO25
-    const int VIB_LOW = 33;   // GPIO33
-    const int HIGH_SPEED = 32;// GPIO32
+    const int VIB_LOW = 26;   // GPIO26
+    const int HIGH_SPEED = 13;// GPIO13
 
     // Function to validate GPIO pin number
     bool isValidPin(int pin) {
