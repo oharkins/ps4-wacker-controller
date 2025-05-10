@@ -124,13 +124,11 @@ void safeDigitalWrite(int pin, int value) {
 
 // Update processDpadMovement to use safeDigitalWrite
 void processDpadMovement(uint8_t dpad) {
-    // Check for invalid D-pad combinations
-    if ((dpad & DPAD_UP) && (dpad & (DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT))) return;
-    if ((dpad & DPAD_DOWN) && (dpad & (DPAD_UP | DPAD_LEFT | DPAD_RIGHT))) return;
-    if ((dpad & DPAD_LEFT) && (dpad & (DPAD_UP | DPAD_DOWN | DPAD_RIGHT))) return;
-    if ((dpad & DPAD_RIGHT) && (dpad & (DPAD_UP | DPAD_DOWN | DPAD_LEFT))) return;
+    // Prevent opposing directions
+    if ((dpad & DPAD_LEFT) && (dpad & DPAD_RIGHT)) return;  // Can't go left and right
+    if ((dpad & DPAD_UP) && (dpad & DPAD_DOWN)) return;     // Can't go up and down
 
-    // Process valid D-pad inputs
+    // Process all other D-pad inputs independently
     safeDigitalWrite(Pins::FORWARD, (dpad & DPAD_UP) ? HIGH : LOW);
     safeDigitalWrite(Pins::BACKWARD, (dpad & DPAD_DOWN) ? HIGH : LOW);
     safeDigitalWrite(Pins::LEFT, (dpad & DPAD_LEFT) ? HIGH : LOW);
